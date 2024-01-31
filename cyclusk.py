@@ -435,7 +435,7 @@ def extract_numeric_part(sample_name):
 def thousands_formatter(x, pos):
     return '%1.0f' % (x * 1e-3)
 
-def generate_sample_id_to_color(sample_ids, standard_color="#FFD700", default_color="#800080"):
+def generate_sample_id_to_color(sample_ids, standard_color="#00313cff", default_color="#00a9ceff"):
     sample_id_to_color = {}
 
     # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
@@ -842,7 +842,7 @@ def plot_standard_curve(ax, dye_standards_data, dye, regression_line=None):
     log_std_conc_pm = np.log10(dye_standards_data['std_conc_pm'])
 
     # Plot actual data points with log-transformed x-axis
-    ax.scatter(log_std_conc_pm, dye_standards_data['Cq'], color='#800080')
+    ax.scatter(log_std_conc_pm, dye_standards_data['Cq'], color='#00a9ceff')
 
     # Set x-axis ticks to align with the log-transformed standard concentration values
     ax.set_xticks(log_std_conc_pm)
@@ -857,7 +857,7 @@ def plot_standard_curve(ax, dye_standards_data, dye, regression_line=None):
     # If regression line data is provided, plot it
     if regression_line:
         x_values, y_values, linreg = regression_line
-        ax.plot(x_values, y_values, color='#FFD700', label=f'Regression Line\ny = {linreg.coef_[0]:.4f}x + {linreg.intercept_:.3f}')
+        ax.plot(x_values, y_values, color='#00313cff', label=f'Regression Line\ny = {linreg.coef_[0]:.4f}x + {linreg.intercept_:.3f}')
 
         slope = linreg.coef_[0]
         intercept = linreg.intercept_
@@ -1348,8 +1348,17 @@ for key in section_keys:
 if 'previous_selected_wells' not in st.session_state:
     st.session_state['previous_selected_wells'] = []
 
-def main():      
-    st.title("Cyclus Κ")
+def main():   
+    st.set_page_config(page_title='Cyclus Κ', page_icon='CyclusK_logo.ico')
+
+    col1, col2 = st.columns([1, 3.1])
+
+    with col1:
+        st.title('Cyclus Κ')
+       
+    with col2:
+        st.image('CyclusK_logo.png')
+        
     st.subheader("qPCR and KAPA Library Quantification Analysis Tool")
     uploaded_PCR_file, uploaded_labelling_file, pcr_data_basename = upload_files()
       
