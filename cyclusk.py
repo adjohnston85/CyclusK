@@ -551,8 +551,9 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
     if baseline_cycle:
         ax.axvline(x=baseline_cycle, color='green', linestyle='--', linewidth=1, label='Baseline Cycle' if log_transform else None)
         if st.session_state['ignore_cycles'] > 0:
+            ignore_cycles = st.session_state['ignore_cycles']
             ignore_until_cycle = baseline_cycle + st.session_state['ignore_cycles']
-            ax.axvline(x=ignore_until_cycle, color='red', linestyle='--', linewidth=1, label=f'Ignore After {st.session_state['ignore_cycles']} Cycles' if log_transform else None)
+            ax.axvline(x=ignore_until_cycle, color='red', linestyle='--', linewidth=1, label=f'Ignore After {ignore_cycles} Cycles' if log_transform else None)
 
     ax.set_title(f'{"Log-Transformed " if log_transform else ""}Amplification Curve for {dye_id}')
     ax.set_xlabel('Cycle')
