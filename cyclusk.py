@@ -435,7 +435,7 @@ def extract_numeric_part(sample_name):
 def thousands_formatter(x, pos):
     return '%1.0f' % (x * 1e-3)
 
-def generate_sample_id_to_color(sample_ids, standard_color="#00313cff", default_color="#00a9ceff"):
+def generate_sample_id_to_color(sample_ids, standard_color="#9faee5ff", default_color="#1e22aaff"):
     sample_id_to_color = {}
 
     # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
@@ -1354,7 +1354,7 @@ def main():
         st.title('Cyclus Κ')
        
     with col2:
-        st.image('CyclusK_logo.png')
+        st.image('CyclusK_logo.svg')
         
     st.subheader("qPCR and KAPA Library Quantification Analysis Tool")
     uploaded_PCR_file, uploaded_labelling_file, pcr_data_basename = upload_files()
