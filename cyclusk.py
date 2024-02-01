@@ -461,9 +461,6 @@ def generate_sample_id_to_color(sample_ids, standard_color="#00313cff", default_
             cmap = plt.cm.get_cmap('viridis', num_colors_needed)
             colors = [cmap(i) for i in range(num_colors_needed)]
 
-        # Randomize the colors to avoid adjacent similar colors
-        np.random.shuffle(colors)
-
         # Assign colors to sample IDs
         color_index = 0
         for sample_id in sample_ids:
