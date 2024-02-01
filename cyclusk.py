@@ -201,54 +201,60 @@ def baseline_subtraction(df):
     df = df[df['WellID'].isin(st.session_state['selected_wells'])].copy()
     baseline_end_cycles = {}  # dictionary to store values
     for (well_id, dye_id), group in df.groupby(['WellID', 'DyeID']):
+        
         if st.session_state['baseline_cycle_' + dye_id] > 0:
             min_fluorescence = group['Fluorescence'].min()
             group['Adjusted Fluorescence'] = group['Fluorescence'] - min_fluorescence + 1
 
             # Initialize variables
             baseline_start_cycle = None
-            increasing_slopes_count = 0
-            last_slope = -np.inf
+            set_point_fluorescence = group['Adjusted Fluorescence'].iloc[st.session_state['baseline_cycle_' + dye_id]]
+            last_difference = 0  # Initialize to track the last difference from the set point
+            last_increase = 0  # Initialize to track the last increase amount
+            exponential_increases_count = 0
             exponential_start_cycle = None
 
-            # Iterate over cycle pairs
-            for start in range(st.session_state['baseline_cycle_' + dye_id], len(group) - 1):
-                pair_group = group.iloc[start:start + 2]
-                X = pair_group[['Cycle']]
-                y = pair_group['Adjusted Fluorescence']
+            # Iterate over the cycles, starting from one cycle after the baseline cycle defined in the session state
+            for start in range(st.session_state['baseline_cycle_' + dye_id] + 1, len(group)):
+                # Calculate the difference from the set point for the current cycle
+                current_difference = group['Adjusted Fluorescence'].iloc[start] - set_point_fluorescence
 
-                linreg = LinearRegression()
-                linreg.fit(X, y)
+                # Calculate the increase from the last difference
+                current_increase = current_difference - last_difference
 
-                current_slope = linreg.coef_[0]
+                # Ensure the current increase is greater than the last increase, indicating accelerating growth
+                if current_increase > last_increase and last_increase > 0:
+                    exponential_increases_count += 1
 
-                # Identify Baseline Start Cycle
-                if baseline_start_cycle is None and current_slope > 0:
-                    baseline_start_cycle = pair_group['Cycle'].iloc[0]
-
-                # Check if current slope is at least 1.5 times greater than the last slope
-                if current_slope > 1.5 * last_slope and last_slope > 0:
-                    increasing_slopes_count += 1
-                    last_slope = current_slope
-
-                    # Check if we have found 3 cycles with the required increase
-                    if increasing_slopes_count == 3:
-                        exponential_start_cycle = pair_group['Cycle'].iloc[0] - 5
+                    lookback = st.session_state[f'exponential_cycles_threshold_{dye_id}']
+                    # Check if we have a sufficient number of cycles showing accelerating increases
+                    if exponential_increases_count == lookback:  # For example, 5 cycles including the set point cycle
+                        exponential_start_cycle = group['Cycle'].iloc[start - lookback]  # Adjusting for the look-back
                         break
                 else:
-                    increasing_slopes_count = 0
-                    last_slope = current_slope
+                    # Reset the count if the increase is not accelerating
+                    exponential_increases_count = 0
+
+                # Update for the next iteration
+                last_difference = current_difference
+                last_increase = current_increase
+
+            # Identify Baseline Start Cycle if not already set
+            if baseline_start_cycle is None:
+                baseline_start_cycle = group['Cycle'].iloc[st.session_state['baseline_cycle_' + dye_id]]
+
+            # Identify Baseline Start Cycle if not already set
+            if baseline_start_cycle is None:
+                baseline_start_cycle = group['Cycle'].iloc[st.session_state['baseline_cycle_' + dye_id]]
 
             # Baseline end is the cycle before the exponential start
-            baseline_end_cycle = exponential_start_cycle - 1 if exponential_start_cycle is not None else None
+            baseline_end_cycle = exponential_start_cycle - 2 if exponential_start_cycle is not None else None
             
             if dye_id not in baseline_end_cycles:
                 baseline_end_cycles[dye_id] = []
                 
             if baseline_end_cycle:
                 baseline_end_cycles[dye_id].append(baseline_end_cycle)
-            
-            #group.loc[group['Cycle'] == 1, 'Adjusted Fluorescence'] = 1
             
             if baseline_end_cycle is not None:
                 baseline_data = group[group['Cycle'].isin([1, baseline_end_cycle])]
@@ -268,8 +274,8 @@ def baseline_subtraction(df):
                     group['Adjusted Fluorescence'] += adjustment_factor
                     
                 # Step 5: Set adjusted fluorescence value of baseline_end_cycle and before to 1
-                #group.loc[group['Cycle'] <= baseline_end_cycle, 'Adjusted Fluorescence'] = 1
-                
+                group.loc[group['Cycle'] <= baseline_end_cycle, 'Adjusted Fluorescence'] = 1
+                                
             # Update the original dataframe with the adjusted values
             df.update(group[['Adjusted Fluorescence']])
 
@@ -284,8 +290,8 @@ def find_steepest_section(df, dye_threshold, baseline_cycle):
     steepest_section = None
 
     # Sliding window approach
-    for start in range(len(df_filtered) - st.session_state['eff_window_size'] + 1):
-        end = start + st.session_state['eff_window_size']
+    for start in range(len(df_filtered) - st.session_state[f'eff_window_size_{dye_id}'] + 1):
+        end = start + st.session_state[f'eff_window_size_{dye_id}']
         window = df_filtered.iloc[start:end]
         X = window[['Cycle']]
         y = window['Log Fluorescence']
@@ -326,7 +332,7 @@ def calculate_pcr_efficiency(df, well_id, dye_id):
     # Filter the DataFrame based on WellID and DyeID
     df_filtered = df[(df['WellID'] == well_id) & 
                      (df['DyeID'] == dye_id) & 
-                     (df['Cycle'] > baseline_cycle + st.session_state['ignore_cycles'])]
+                     (df['Cycle'] > baseline_cycle + st.session_state[f'ignore_cycles_{dye_id}'])]
 
     # Initialize the variables for detecting continuous increase
     continuous_increase_start = None
@@ -366,8 +372,8 @@ def calculate_pcr_efficiency(df, well_id, dye_id):
     steepest_section = None
 
     # Sliding window approach to find the steepest section
-    for start in range(len(df_filtered) - st.session_state['eff_window_size'] + 1):
-        end = start + st.session_state['eff_window_size']
+    for start in range(len(df_filtered) - st.session_state[f'eff_window_size_{dye_id}'] + 1):
+        end = start + st.session_state[f'eff_window_size_{dye_id}']
         window = df_filtered.iloc[start:end]
         X = window[['Cycle']]
         y = window['Log Fluorescence']
@@ -435,9 +441,12 @@ def extract_numeric_part(sample_name):
 def thousands_formatter(x, pos):
     return '%1.0f' % (x * 1e-3)
 
-def generate_sample_id_to_color(sample_ids, standard_color="#9faee5ff", default_color="#1e22aaff"):
+def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", default_color="#1e22aaff"):
     sample_id_to_color = {}
 
+    dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
+    other_colors = itertools.cycle(['cyan', 'magenta', 'yellow', 'black', 'orange'])
+    
     # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
     non_standard_ids = [sid for sid in sample_ids if 'Standard_' not in sid]
     num_colors_needed = len(non_standard_ids)
@@ -475,6 +484,8 @@ def generate_sample_id_to_color(sample_ids, standard_color="#9faee5ff", default_
         for sample_id in sample_ids:
             if 'Standard_' in sample_id:
                 sample_id_to_color[sample_id] = standard_color
+            elif dye_id:
+                sample_id_to_color[sample_id] = dye_colors[dye_id]
             else:
                 sample_id_to_color[sample_id] = default_color
 
@@ -487,7 +498,7 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
 
     if sample_id_to_color is None:
         sample_ids = df['SampleID'].unique()
-        sample_id_to_color = generate_sample_id_to_color(sample_ids)
+        sample_id_to_color = generate_sample_id_to_color(sample_ids, dye_id)
 
     dye_group = df[df['DyeID'] == dye_id]
     grouped_by_well = dye_group.groupby('WellID')
@@ -547,9 +558,9 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
 
     if baseline_cycle:
         ax.axvline(x=baseline_cycle, color='green', linestyle='--', linewidth=1, label='Baseline Cycle' if log_transform else None)
-        if st.session_state['ignore_cycles'] > 0:
-            ignore_cycles = st.session_state['ignore_cycles']
-            ignore_until_cycle = baseline_cycle + st.session_state['ignore_cycles']
+        if st.session_state[f'ignore_cycles_{dye_id}'] > 0:
+            ignore_cycles = st.session_state[f'ignore_cycles_{dye_id}']
+            ignore_until_cycle = baseline_cycle + st.session_state[f'ignore_cycles_{dye_id}']
             ax.axvline(x=ignore_until_cycle, color='red', linestyle='--', linewidth=1, label=f'Ignore After {ignore_cycles} Cycles' if log_transform else None)
 
     ax.set_title(f'{"Log-Transformed " if log_transform else ""}Amplification Curve for {dye_id}')
@@ -558,10 +569,10 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
 
     if not log_transform:
         def thousands_formatter(x, pos):
-            return '{:02d}'.format(int(x * 1e-3))
+            return '{:02d}'.format(int(x * 1e-2))
 
         ax.yaxis.set_major_formatter(FuncFormatter(thousands_formatter))
-        ax.set_ylabel('Adjusted Fluorescence (x1000)')
+        ax.set_ylabel('Adjusted Fluorescence (x100)')
     else:
         def zero_padding_formatter(x, pos):
             # Assuming you want at least 4 digits with leading zeros
@@ -774,25 +785,22 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
         return sorted(samples, key=sample_sort_key)
 
     def generate_legend(samples, include_well_availability=False):
-        if include_well_availability:
-            legend_html = "<div style='margin-left: 5px;'><div class='legend-text'><b>Legend:</b></div>"
-        else:
-            legend_html = "<div style='margin-left: 5px;'>"
+        # Start the legend HTML without the 'Legend:' label
+        legend_html = "<div style='margin-left: 5px;'>"
 
         if include_well_availability:
+            # Combine the "Available Well" and "Unavailable Well" in a single row for side-by-side display
             legend_html += "<div class='legend-row'>" \
                            "<div class='legend-cell'><div class='white-circle-table'></div> <span class='legend-text'>Available Well</span></div>" \
-                           "</div>" \
-                           "<div class='legend-row'>" \
                            "<div class='legend-cell'><div class='legend-white-square'></div> <span class='legend-text'>Unavailable Well</span></div>" \
                            "</div>"
 
         # Sort the sample items before generating legend entries
         sample_items = list(samples.items())
 
-        for i in range(0, len(sample_items), 3):
+        for i in range(0, len(sample_items), 2):
             legend_html += "<div class='legend-row'>"
-            for sample_id, color in sample_items[i:i+3]:
+            for sample_id, color in sample_items[i:i+2]:
                 color_hex = matplotlib.colors.rgb2hex(color)
                 legend_html += f"<div class='legend-cell'><div class='circle' style='background-color: {color_hex};'></div> <span class='legend-text'>{sample_id}</span></div>"
             legend_html += "</div>"
@@ -816,8 +824,8 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
     sorted_nonstandard_samples = dict(sort_samples(list(non_standard_samples.items())))
 
     # Now split the sorted samples for the top and bottom legends
-    top_samples = dict(list(sorted_nonstandard_samples.items())[:15])  # Up to the first nine samples for the top legend
-    bottom_samples = {**dict(list(sorted_nonstandard_samples.items())[15:]), **sorted_standard_samples}
+    top_samples = dict(list(sorted_nonstandard_samples.items())[:14])  # Up to the first nine samples for the top legend
+    bottom_samples = {**dict(list(sorted_nonstandard_samples.items())[14:]), **sorted_standard_samples}
 
     top_legend_html = generate_legend(top_samples, include_well_availability=True)
     bottom_legend_html = generate_legend(bottom_samples)
@@ -834,12 +842,12 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
     st.components.v1.html(top_combined_html)
     st.components.v1.html(bottom_combined_html)
     
-def plot_standard_curve(ax, dye_standards_data, dye, regression_line=None):
+def plot_standard_curve(ax, dye_standards_data, dye, regression_line=None, standard_color="#9faee5ff", default_color="#1e22aaff", ):
     # Apply log transformation to the standard concentration
     log_std_conc_pm = np.log10(dye_standards_data['std_conc_pm'])
 
     # Plot actual data points with log-transformed x-axis
-    ax.scatter(log_std_conc_pm, dye_standards_data['Cq'], color='#00a9ceff')
+    ax.scatter(log_std_conc_pm, dye_standards_data['Cq'], color=standard_color)
 
     # Set x-axis ticks to align with the log-transformed standard concentration values
     ax.set_xticks(log_std_conc_pm)
@@ -854,7 +862,7 @@ def plot_standard_curve(ax, dye_standards_data, dye, regression_line=None):
     # If regression line data is provided, plot it
     if regression_line:
         x_values, y_values, linreg = regression_line
-        ax.plot(x_values, y_values, color='#00313cff', label=f'Regression Line\ny = {linreg.coef_[0]:.4f}x + {linreg.intercept_:.3f}')
+        ax.plot(x_values, y_values, color=default_color, label=f'Regression Line\ny = {linreg.coef_[0]:.4f}x + {linreg.intercept_:.3f}')
 
         slope = linreg.coef_[0]
         intercept = linreg.intercept_
@@ -920,13 +928,30 @@ def merge_and_preprocess_data(raw_data, labeling_data):
 
 def setup_analysis_parameters(subtracted_data):
     unique_dyes = subtracted_data['DyeID'].unique()
-    baseline_cycles = {dye: st.sidebar.slider(f"Minimum baseline cycle {dye}", 0, 10, 1, key=f'baseline_cycle_{dye}') for dye in unique_dyes}  
-    log_fluorescence_thresholds = {dye: st.sidebar.slider(f"Log Adjusted Fluorescence threshold for {dye}", 0.0, 10.0, 4.15, key=f'log_fluorescence_threshold_{dye}') for dye in unique_dyes}
-    st.sidebar.slider("Start cycle for steepest section", 0, 10, 0, key='ignore_cycles')
-    st.sidebar.slider("Steepest section cycle window", 3, 10, 8, key='eff_window_size')
+
+    # Generic (non-dye-specific) checkboxes
     st.session_state['use_steepest_section_for_threshold'] = st.sidebar.checkbox('Use individual regression for Cq', value=True)
-    st.session_state["show_steepest_section"] = st.sidebar.checkbox('Plot Steepest Section', value=False)
+    st.session_state["show_steepest_section"] = st.sidebar.checkbox('Plot Steepest Section', value=True)
     st.session_state['color_by_samples'] = st.sidebar.checkbox('Colour by sample', value=False)
+
+    # Initialize dictionaries for dye-specific settings
+    ignore_cycles = {}
+    eff_window_size = {}
+    exponential_cycles_thresholds = {}
+    baseline_cycles = {}
+    log_fluorescence_thresholds = {}
+
+    for dye in unique_dyes:
+        # Title for dye-specific sliders
+        st.sidebar.markdown(f"### {dye} Sliders")
+        
+        # Dye-specific sliders
+        log_fluorescence_thresholds[dye] = st.sidebar.slider(f"Log Adjusted Fluorescence threshold ({dye})", 0.0, 10.0, 4.15, key=f'log_fluorescence_threshold_{dye}')
+        eff_window_size[dye] = st.sidebar.slider(f"Steepest section cycle window ({dye})", 3, 10, 4, key=f'eff_window_size_{dye}')
+        ignore_cycles[dye] = st.sidebar.slider(f"Start cycle for steepest section ({dye})", 0, 10, 0, key=f'ignore_cycles_{dye}')
+        exponential_cycles_thresholds[dye] = st.sidebar.slider(f"Exponential Cycles Threshold ({dye})", 3, 10, 4, key=f'exponential_cycles_threshold_{dye}')
+        baseline_cycles[dye] = st.sidebar.slider(f"Minimum baseline cycle ({dye})", 0, 10, 1, key=f'baseline_cycle_{dye}')
+
     return unique_dyes
 
 def analyze_data(subtracted_data, unique_dyes, labeling_data):
@@ -1002,15 +1027,12 @@ def analyze_data(subtracted_data, unique_dyes, labeling_data):
     return results_df, all_steepest_sections, mean_cq_thresholds
 
 def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles):
-    dye_colors = {'FAM': 'blue', 'HEX': 'green', 'Cy5': 'purple'}
-    other_colors = itertools.cycle(['cyan', 'magenta', 'yellow', 'black', 'orange'])
 
     for dye_id in unique_dyes:
         baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
         col1, col2 = st.columns(2)
         fig1, ax1 = plt.subplots()
         fig2, ax2 = plt.subplots()
-        color = dye_colors.get(dye_id, next(other_colors))
         filtered_data = subtracted_data[(subtracted_data['DyeID'] == dye_id) & subtracted_data['WellID'].isin(st.session_state['selected_wells'])]
 
         with col1:
@@ -1070,7 +1092,7 @@ def display_results_table(results_df, labeling_data, pcr_data_basename):
         mime='text/tsv'
     )
 
-def generate_standard_curve_summary(df):
+def generate_standard_curve_summary(df, pcr_data_basename, dye_id):
     # Filter for only standard samples
     standard_curve_df = df[df['SampleID'].str.contains("Standard_")].copy()
 
@@ -1114,11 +1136,12 @@ def generate_standard_curve_summary(df):
     st.download_button(
         label="Download results as TSV",
         data=standard_curve_summary_df.to_csv(sep='\t', index=False),
-        file_name='KAPA_standard_curve_table.tsv',
-        mime='text/tsv'
+        file_name=f'{pcr_data_basename}_{dye_id}_KAPA_standard_curve_table.tsv',
+        mime='text/tsv',
+        key=f'{pcr_data_basename}_{dye_id}_KAPA_standard_curve_table'
     )
 
-def calculate_qpcr_results(results_df, slope, intercept):
+def calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id):
     FRAGMENT_MOLAR_MASS_FACTOR = 617.9  # g/mol
     
     # Convert 'SampleID' to string and exclude standard samples
@@ -1242,8 +1265,9 @@ def calculate_qpcr_results(results_df, slope, intercept):
     st.download_button(
         label="Download results as TSV",
         data=output_df.to_csv(sep='\t', index=False),
-        file_name='KAPA_analysis_per_well_results.tsv',
-        mime='text/tsv'
+        file_name=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_well_results.tsv',
+        mime='text/tsv',
+        key=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_well'
         )
 
     # Create a summary DataFrame with one row per unique combination of 'SampleID' and 'dilutionfactor'
@@ -1270,8 +1294,9 @@ def calculate_qpcr_results(results_df, slope, intercept):
     st.download_button(
         label="Download results as TSV",
         data=output_df.to_csv(sep='\t', index=False),
-        file_name='KAPA_analysis_per_sample_results.tsv',
-        mime='text/tsv'
+        file_name=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_sample_results.tsv',
+        mime='text/tsv',
+        key=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_sample'
             )
 
 def has_non_standard_wells(results_df):
@@ -1382,8 +1407,8 @@ def main():
                     results_df, all_steepest_sections, cq_thresholds = analyze_data(subtracted_data, unique_dyes, labeling_data)
                     results_df['Cq'] = pd.to_numeric(results_df['Cq'], errors='coerce')
                     
-                    plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles)
-                    display_results_table(results_df, labeling_data, pcr_data_basename)
+                plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles)
+                display_results_table(results_df, labeling_data, pcr_data_basename)
 
         current_data = raw_data if raw_data is not None else subtracted_data
 
@@ -1423,10 +1448,10 @@ def main():
                     # Show the plot
                     st.pyplot(fig)
                     
-                    generate_standard_curve_summary(dye_standards_data)
+                    generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye)
                     
                     if has_non_standard_wells(results_df):
-                        calculate_qpcr_results(results_df, slope, intercept)
+                        calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id)
 
         st.subheader("Select Wells to Include:")
 
@@ -1451,7 +1476,7 @@ def main():
             )
 
         sample_ids = current_data['SampleID'].unique()
-        sample_id_to_color = generate_sample_id_to_color(sample_ids)
+        sample_id_to_color = generate_sample_id_to_color(sample_ids, None)
 
         # Assuming 'current_data' has columns 'WellID' and 'SampleID'
         well_id_to_sample_id = dict(zip(current_data['WellID'], current_data['SampleID']))
