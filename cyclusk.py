@@ -1434,21 +1434,21 @@ def main():
             # Group by 'std_conc_pm' and 'DyeID' and calculate the average Cq for each group
             avg_cq_data = standards_data.groupby(['std_conc_pm', 'DyeID'])['Cq'].mean().reset_index()
 
-            for dye in unique_dyes:
+            for dye_id in unique_dyes:
                 fig, ax = plt.subplots()
-                dye_standards_data = standards_data[standards_data['DyeID'] == dye]
-                dye_avg_cq_data = avg_cq_data[avg_cq_data['DyeID'] == dye]
+                dye_standards_data = standards_data[standards_data['DyeID'] == dye_id]
+                dye_avg_cq_data = avg_cq_data[avg_cq_data['DyeID'] == dye_id]
                 if not dye_avg_cq_data.empty:
                     # Perform linear regression and get regression line
                     linreg, r_squared, log_std_conc_pm = perform_linear_regression(dye_avg_cq_data)
                     x_values = np.linspace(log_std_conc_pm.min(), log_std_conc_pm.max(), 100)
                     y_values = linreg.predict(x_values.reshape(-1, 1))
-                    slope, intercept = plot_standard_curve(ax, dye_standards_data, dye, (x_values, y_values, linreg))
+                    slope, intercept = plot_standard_curve(ax, dye_standards_data, dye_id, (x_values, y_values, linreg))
 
                     # Show the plot
                     st.pyplot(fig)
                     
-                    generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye)
+                    generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye_id)
                     
                     if has_non_standard_wells(results_df):
                         calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id)
