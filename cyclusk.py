@@ -940,7 +940,7 @@ def setup_analysis_parameters(subtracted_data):
     st.session_state['use_steepest_section_for_threshold'] = st.sidebar.checkbox('Use individual regression for Cq', value=True)
     st.session_state["show_steepest_section"] = st.sidebar.checkbox('Plot Steepest Section', value=True)
     st.session_state['color_by_samples'] = st.sidebar.checkbox('Colour by sample', value=False)
-    st.session_state['kapa_analysis'] = st.sidebar.checkbox('Includ KAPA analysis', value=True)
+    st.session_state['kapa_analysis'] = st.sidebar.checkbox('Include KAPA analysis', value=True)
 
     # Initialize dictionaries for dye-specific settings
     ignore_cycles = {}
