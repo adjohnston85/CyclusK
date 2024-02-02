@@ -940,6 +940,7 @@ def setup_analysis_parameters(subtracted_data):
     st.session_state['use_steepest_section_for_threshold'] = st.sidebar.checkbox('Use individual regression for Cq', value=True)
     st.session_state["show_steepest_section"] = st.sidebar.checkbox('Plot Steepest Section', value=True)
     st.session_state['color_by_samples'] = st.sidebar.checkbox('Colour by sample', value=False)
+    st.session_state['kapa_analysis'] = st.sidebar.checkbox('Includ KAPA analysis', value=True)
 
     # Initialize dictionaries for dye-specific settings
     ignore_cycles = {}
@@ -1143,9 +1144,9 @@ def generate_standard_curve_summary(df, pcr_data_basename, dye_id):
     st.download_button(
         label="Download results as TSV",
         data=standard_curve_summary_df.to_csv(sep='\t', index=False),
-        file_name=f'{pcr_data_basename}_{dye_id}_KAPA_standard_curve_table.tsv',
+        file_name=f'{pcr_data_basename}_{dye_id}_standard_curve_table.tsv',
         mime='text/tsv',
-        key=f'{pcr_data_basename}_{dye_id}_KAPA_standard_curve_table'
+        key=f'{pcr_data_basename}_{dye_id}_standard_curve_table'
     )
 
 def calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id):
@@ -1464,7 +1465,7 @@ def main():
                 fig, ax = plt.subplots()
                 dye_standards_data = standards_data[standards_data['DyeID'] == dye_id]
                 dye_avg_cq_data = avg_cq_data[avg_cq_data['DyeID'] == dye_id]
-                if not dye_avg_cq_data.empty:
+                if not dye_avg_cq_data.empty and has_non_standard_wells(results_df):
                     # Perform linear regression and get regression line
                     linreg, r_squared, log_std_conc_pm = perform_linear_regression(dye_avg_cq_data)
                     x_values = np.linspace(log_std_conc_pm.min(), log_std_conc_pm.max(), 100)
@@ -1474,10 +1475,11 @@ def main():
                     # Show the plot
                     st.pyplot(fig)
                     
-                    generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye_id)
-                    
                     if has_non_standard_wells(results_df):
-                        calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id)
+                        generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye_id)
+                    
+                        if st.session_state['kapa_analysis']::
+                            calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id)
 
         st.subheader("Select Wells to Include:")
 
