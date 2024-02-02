@@ -21,6 +21,7 @@ import matplotlib
 import zipfile
 import struct
 import seaborn as sns
+import csv
 
 # Function to map react_id to well
 def map_react_id_to_well(react_id):
@@ -798,9 +799,9 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
         # Sort the sample items before generating legend entries
         sample_items = list(samples.items())
 
-        for i in range(0, len(sample_items), 2):
+        for i in range(0, len(sample_items), 3):
             legend_html += "<div class='legend-row'>"
-            for sample_id, color in sample_items[i:i+2]:
+            for sample_id, color in sample_items[i:i+3]:
                 color_hex = matplotlib.colors.rgb2hex(color)
                 legend_html += f"<div class='legend-cell'><div class='circle' style='background-color: {color_hex};'></div> <span class='legend-text'>{sample_id}</span></div>"
             legend_html += "</div>"
@@ -824,8 +825,8 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
     sorted_nonstandard_samples = dict(sort_samples(list(non_standard_samples.items())))
 
     # Now split the sorted samples for the top and bottom legends
-    top_samples = dict(list(sorted_nonstandard_samples.items())[:14])  # Up to the first nine samples for the top legend
-    bottom_samples = {**dict(list(sorted_nonstandard_samples.items())[14:]), **sorted_standard_samples}
+    top_samples = dict(list(sorted_nonstandard_samples.items())[:21])  # Up to the first nine samples for the top legend
+    bottom_samples = {**dict(list(sorted_nonstandard_samples.items())[21:]), **sorted_standard_samples}
 
     top_legend_html = generate_legend(top_samples, include_well_availability=True)
     bottom_legend_html = generate_legend(bottom_samples)
@@ -904,8 +905,14 @@ def perform_linear_regression(dye_avg_cq_data):
    
 def upload_files():
     uploaded_PCR_file = st.sidebar.file_uploader("Upload your PCR data file", type=['rdml', 'xml', 'zpcr'])
+    
+    file_path = "CyclusK_qPCR_labelling_template_384_well_including_KAPA_standards.tsv"
+    lines = read_tsv_lines(file_path)
+    download_tsv(lines)
+    
     uploaded_labelling_file = st.sidebar.file_uploader("Upload your labeling file", type=['tsv', 'txt'])
     pcr_data_basename = os.path.splitext(os.path.basename(uploaded_PCR_file.name))[0] if uploaded_PCR_file else 'qPCR'
+     
     return uploaded_PCR_file, uploaded_labelling_file, pcr_data_basename
 
 def process_labeling_file(uploaded_file_tsv):
@@ -1171,9 +1178,9 @@ def calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_
     # Group by 'SampleID' only for Delta Cq calculation
     grouped_sample = non_standard_df.groupby('SampleID')
     
-    non_standard_df['Working concentration (pM)'] = grouped_sample['Concentration of undiluted library (pM)'].transform('mean')
-    non_standard_df['Working concentration (nM)'] = grouped_sample['Concentration of undiluted library (nM)'].transform('mean')
-    non_standard_df['Working concentration (ng/µL)'] = grouped_sample['Concentration of undiluted library (ng/µL)'].transform('mean')
+    non_standard_df['Working concentration (pM)'] = grouped_sample['Concentration of undiluted library (pM)'].transform('median')
+    non_standard_df['Working concentration (nM)'] = grouped_sample['Concentration of undiluted library (nM)'].transform('median')
+    non_standard_df['Working concentration (ng/µL)'] = grouped_sample['Concentration of undiluted library (ng/µL)'].transform('median')
     non_standard_df.loc[:, 'Delta Cq'] = grouped_sample['Average Cq'].transform(lambda x: x.diff())
     
     # Identify the first row in each SampleID group
@@ -1293,7 +1300,7 @@ def calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_
     
     st.download_button(
         label="Download results as TSV",
-        data=output_df.to_csv(sep='\t', index=False),
+        data=summary_df.to_csv(sep='\t', index=False),
         file_name=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_sample_results.tsv',
         mime='text/tsv',
         key=f'{pcr_data_basename}_{dye_id}_KAPA_analysis_per_sample'
@@ -1361,6 +1368,25 @@ def toggle_section(active_key):
     st.session_state[active_key] = current_state
     st.session_state['plot_and_calculate'] = False
     st.rerun()
+
+# Function to read the CSV file line by line and return as a list of lines
+def read_tsv_lines(file_path):
+    lines = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            lines.append(line)
+    return lines
+
+# Function to download the list of lines as a text file
+def download_tsv(lines):
+    # Create a button to download the data as a plain text file
+    txt_data = "".join(lines)
+    st.sidebar.download_button(
+        label="Download labelling template",
+        data=txt_data,
+        key="download-button",
+        file_name="CyclusK_qPCR_labelling_template_384_well_including_KAPA_standards.tsv"
+    )
     
 section_keys = ['add_by_row', 'add_by_column', 'add_by_sample', 'add_by_well', 'plot_and_calculate', 'selected_wells', 'multiselect_interaction', 'color_by_samples']
 for key in section_keys:
