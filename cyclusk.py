@@ -1478,7 +1478,7 @@ def main():
                     if has_non_standard_wells(results_df):
                         generate_standard_curve_summary(dye_standards_data, pcr_data_basename, dye_id)
                     
-                        if st.session_state['kapa_analysis']::
+                        if st.session_state['kapa_analysis']:
                             calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_id)
 
         st.subheader("Select Wells to Include:")
