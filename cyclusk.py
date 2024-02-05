@@ -22,6 +22,8 @@ import zipfile
 import struct
 import seaborn as sns
 import csv
+import shutil
+from scipy.signal import savgol_filter, find_peaks
 
 # Function to map react_id to well
 def map_react_id_to_well(react_id):
@@ -43,10 +45,39 @@ def extract_max_cycles(protocol_content):
         # Default value or handle the absence of a matching pattern as needed
         return 40
 
-def extract_data_from_zpcr(temp_dir):
+def extract_data_from_zpcr(temp_dir, pcr_data_basename):
     data = []
+    melt_data = []
     dye_id = 'FAM'  # Assuming 'channel 1' corresponds to FAM dye
 
+    # Extract temperature data from the .alf file
+    alf_file_path = os.path.join(temp_dir, f'{pcr_data_basename}.alf')  
+
+    alf_file_path = os.path.join(temp_dir, f'{pcr_data_basename}.alf')
+
+    temperatures = {}
+    previous_line = ''
+
+    # Open and read the file line by line
+    cycle_no = 1
+    with open(alf_file_path, 'r') as file:
+        for line in file:
+            # Check if the current line contains 'Plate Read'
+            if 'Plate Read' in line:
+                # Extract the temperature from the previous line
+                parts = previous_line.split('*')
+                try:
+                    # Assuming the temperature is always at the 5th position
+                    temperature = float(parts[4])
+                    temperatures[cycle_no] = temperature
+                    cycle_no += 1
+                except IndexError:
+                    # If the expected position is out of range, log an error or skip
+                    print("Error extracting temperature from line:", previous_line)
+                    continue
+            # Update the previous line
+            previous_line = line
+    
     # First, read the ProtocolRunDefinition.txt to find the number of cycles
     protocol_file_path = os.path.join(temp_dir, 'ProtocolRunDefinition.txt')
     if os.path.exists(protocol_file_path):
@@ -57,16 +88,14 @@ def extract_data_from_zpcr(temp_dir):
 
     for file_name in sorted(os.listdir(temp_dir)):
         if file_name.endswith('.Plateread'):
-            cycle = int(file_name.replace('Read', '').replace('.Plateread', ''))  # Extract cycle number from file name
-            if cycle > max_cycles:
-                break
-                
+            cycle = int(file_name.replace('Read', '').replace('.Plateread', ''))
+
             file_path = os.path.join(temp_dir, file_name)
             with open(file_path, 'rb') as file:
                 file.seek(235)  # Skip to the fluorescence data offset
 
                 react_id = 1
-                max_wells = 384  
+                max_wells = 384
                 while react_id <= max_wells:
                     bytes_read = file.read(8)
                     if len(bytes_read) < 8:
@@ -76,20 +105,34 @@ def extract_data_from_zpcr(temp_dir):
                     fluorescence_value, _ = struct.unpack('ff', bytes_read)
                     well_id = map_react_id_to_well(react_id)
 
-                    data.append({
+                    # Temporary dictionary to hold the data
+                    temp_dict = {
                         'ReactID': react_id,
                         'WellID': well_id,
                         'SampleID': 'sample',
                         'DyeID': dye_id,
                         'Cycle': cycle,
-                        'Temperature': 0,  # Temperature is set to 0 as it's not important for this context
+                        'Temperature': temperatures.get(cycle,0),
                         'Fluorescence': fluorescence_value
-                    })
+                    }
+
+                    # Decide whether to append to PCR data or melt curve data
+                    if cycle <= max_cycles:
+                        data.append(temp_dict)
+                    else:
+                        melt_data.append(temp_dict)
 
                     react_id += 1
 
+    # Convert lists to DataFrames
     df = pd.DataFrame(data)
-    return df
+    melt_df = pd.DataFrame(melt_data)
+    return df, melt_df
+
+# Function to generate a random string
+def generate_random_string(length=8):
+    letters = string.ascii_letters
+    return ''.join(random.choice(letters) for i in range(length))
     
 # Function to extract data from XML
 def extract_data_from_xml(root):
@@ -122,7 +165,8 @@ def extract_data_from_xml(root):
                     })
 
     df = pd.DataFrame(data)
-    return df    
+    melt_df = pd.DataFrame()
+    return df, melt_df   
     
 def read_qpcr(uploaded_file):
     file_name = uploaded_file.name
@@ -131,8 +175,12 @@ def read_qpcr(uploaded_file):
 
     # Generate a random string of 6 letters and numbers
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    current_working_directory = os.getcwd()
+    temp_dir = tempfile.mkdtemp(prefix=f"temp_{random_string}_", dir=current_working_directory)
 
     if file_extension == '.rdml':
+
+        # Open the zip file
         with zipfile.ZipFile(io.BytesIO(content), 'r') as zip_ref:
             # Extract all the contents into a temporary directory with a random name
             temp_dir = tempfile.mkdtemp(prefix=f"temp_{random_string}_")
@@ -159,7 +207,6 @@ def read_qpcr(uploaded_file):
         # Handle zPCR files
         with zipfile.ZipFile(io.BytesIO(content), 'r') as zip_ref:
             # Extract all the contents into a temporary directory with a random name
-            temp_dir = tempfile.mkdtemp(prefix=f"temp_{random_string}_")
             zip_ref.extractall(temp_dir)
             # Return the path to the temporary directory containing extracted files
             return temp_dir
@@ -167,23 +214,48 @@ def read_qpcr(uploaded_file):
     else:
         raise ValueError("Unsupported file format")
 
-def process_pcr_data_file(uploaded_file):
+def process_pcr_data_file(uploaded_file, pcr_data_basename):
     if uploaded_file is not None:
         with st.spinner("Processing PCR data file..."):
             if uploaded_file.name.endswith('.zpcr'):
                 temp_dir = read_qpcr(uploaded_file)
-                raw_data = extract_data_from_zpcr(temp_dir)
+                raw_data, melt_data = extract_data_from_zpcr(temp_dir, pcr_data_basename)
                 # Cleanup: Remove the temporary directory and files after use
                 for file_name in os.listdir(temp_dir):
                     os.remove(os.path.join(temp_dir, file_name))
                 os.rmdir(temp_dir)
-                return raw_data
             else:
                 with st.spinner("Processing PCR data file..."):
                     root = read_qpcr(uploaded_file)
-                    raw_data = extract_data_from_xml(root)
-                    return raw_data
-    return None
+                    raw_data, melt_data = extract_data_from_xml(root)
+                    melt_data = pd.DataFrame()
+            
+            # Convert raw_data to DataFrame if it's not already one
+            if not isinstance(raw_data, pd.DataFrame):
+                raw_data = pd.DataFrame(raw_data)
+            
+            # Convert DataFrame to TSV format
+            tsv_data = raw_data.to_csv(sep='\t', index=False)
+            tsv_melt_data = melt_data.to_csv(sep='\t', index=False)
+            
+            # Create a download button for the TSV data
+            st.sidebar.download_button(
+                label="Download raw fluorescence data as TSV",
+                data=tsv_data,
+                file_name=f"{pcr_data_basename}_raw_data.tsv",
+                mime="text/tab-separated-values"
+            )
+
+            # Create a download button for the TSV data
+            st.sidebar.download_button(
+                label="Download melt curve fluorescence data as TSV",
+                data=tsv_melt_data,
+                file_name=f"{pcr_data_basename}_melt_data.tsv",
+                mime="text/tab-separated-values"
+            )
+
+            return raw_data, melt_data
+    return None, None
 
 def map_react_id_to_well(react_id):
     react_id = int(react_id)
@@ -492,6 +564,85 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
 
     return sample_id_to_color
 
+def plot_raw_melt_curves_colored(df, dye_id, ax):
+    """Plot raw melt curves for a given dye with coloring."""
+    unique_wells = df[df['DyeID'] == dye_id]['WellID'].unique()
+    well_colors = generate_sample_id_to_color(unique_wells, dye_id)  # Generate colors for each well
+
+    for well_id in unique_wells:
+        well_data = df[(df['DyeID'] == dye_id) & (df['WellID'] == well_id)]
+        ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Well {well_id}", color=well_colors[well_id], linestyle='-', linewidth=0.5)
+
+    ax.set_title(f"Raw Melt Curves for Dye {dye_id}")
+    ax.set_xlabel("Temperature (°C)")
+    ax.set_ylabel("Fluorescence")
+   
+def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
+    """Plot the derivative of fluorescence with respect to temperature for melt curves, identify and mark the most prominent peak."""
+    unique_wells = df[df['DyeID'] == dye_id]['WellID'].unique()
+    well_colors = generate_sample_id_to_color(unique_wells, dye_id)  # Generate colors for each well
+    melt_temperatures = []
+
+    for well_id in unique_wells:
+        well_data = df[(df['DyeID'] == dye_id) & (df['WellID'] == well_id)].sort_values(by='Temperature')
+        temperature = well_data['Temperature']
+        fluorescence = well_data['Fluorescence']
+
+        # Calculate the negative derivative
+        derivative = -np.gradient(fluorescence, temperature)
+
+        # Plot the derivative curve for this well with its corresponding color
+        ax.plot(temperature, derivative, label=f"Well {well_id}", color=well_colors[well_id], linestyle='-', linewidth=0.5)
+
+        # Find peaks with the highest prominence
+        peaks, properties = find_peaks(derivative, prominence=prominence)
+
+        if len(peaks) > 0:
+            # Find the most prominent peak
+            most_prominent_peak = peaks[np.argmax(properties["prominences"])]
+            melt_temperature = temperature.iloc[most_prominent_peak]
+            
+            melt_temperatures.append({'DyeID': dye_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
+
+            # Mark the most prominent peak on the plot
+            ax.scatter(temperature.iloc[most_prominent_peak], derivative[most_prominent_peak], s=20, facecolors='none', edgecolors='red', linewidths=0.5, zorder=5)
+
+    melt_temperatures_df = pd.DataFrame(melt_temperatures)
+
+    ax.set_title(f"Derivative Melt Curves and Peaks for Dye {dye_id}")
+    ax.set_xlabel("Temperature (°C)")
+    ax.set_ylabel("-d(Fluorescence)/dT")
+    
+    return melt_temperatures_df
+    
+def plot_melt_curves(df, unique_dyes, prominence=0.01):
+    """Plot raw and derivative melt curves side by side for each dye."""
+    st.subheader("Melt Curves:")
+
+    for dye_id in unique_dyes:
+        # Streamlit columns for side-by-side plots
+        
+        baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
+        col1, col2 = st.columns(2)
+        fig1, ax1 = plt.subplots()
+        fig2, ax2 = plt.subplots()
+
+        with col1:
+            st.write(f"Raw Melt Curve for {dye_id}")
+            # Plot raw melt curves with coloring
+            plot_raw_melt_curves_colored(df, dye_id, ax1)
+
+            st.pyplot(fig1)
+
+        with col2:
+            st.write(f"Derivative Melt Curve with Peaks for {dye_id}")
+            # Plot derivative melt curves with peak identification
+            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df, dye_id, ax2, prominence)
+            
+            st.pyplot(fig2)
+    
+    return melt_temperatures_df
+
 def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_end_cycles, log_transform=False,
                     log_fluorescence_threshold=None, baseline_cycle=None, is_last_dye=False, sample_id_to_color=None):
     if len(df) == 0:
@@ -504,7 +655,7 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
     dye_group = df[df['DyeID'] == dye_id]
     grouped_by_well = dye_group.groupby('WellID')
 
-    # Initialize flags for simplified labeling when color_by_samples is False
+    # Initialize flags for simplified labelling when color_by_samples is False
     if not st.session_state['color_by_samples']:
         standard_label_added = False
         sample_label_added = False
@@ -546,7 +697,7 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
             fluorescence_steepest = np.log(steepest_section['Adjusted Fluorescence']) if log_transform else steepest_section['Adjusted Fluorescence']
             ax.scatter(steepest_section['Cycle'], fluorescence_steepest, s=20, facecolors='none', edgecolors='red', linewidths=0.5, zorder=5)
 
-    # Add legend if simplified labeling was used, or if color_by_samples is True and there are labels to show
+    # Add legend if simplified labelling was used, or if color_by_samples is True and there are labels to show
     if not st.session_state['color_by_samples'] and (standard_label_added or sample_label_added) or st.session_state['color_by_samples']:
         ax.legend()
 
@@ -683,7 +834,7 @@ def display_sample_buttons(sample_ids, current_data, available_wells):
                     handle_sample_button(sample_id, current_data, available_wells)
             i += 1
 
-def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_id):
+def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_id, well_id_to_sampletype):
     top_rows = [chr(i) for i in range(65, 73)]  # A-H
     bottom_rows = [chr(i) for i in range(73, 81)]  # I-P
     left_columns = list(range(1, 13))  # 1-12
@@ -808,17 +959,33 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
 
         legend_html += "</div>"
         return legend_html
-        
+    
     # Filter for selected wells and sample IDs
     selected_wells_set = set(st.session_state['selected_wells'])
     selected_wells = st.session_state.get('selected_wells', [])
     selected_well_id_to_sample_id = {well_id: sample_id for well_id, sample_id in well_id_to_sample_id.items() if well_id in selected_wells}
+
+    # Resolve sample types for selected sample IDs using well IDs
+    selected_well_id_to_sample_type = {well_id: well_id_to_sampletype[well_id] for well_id in selected_well_id_to_sample_id if well_id in well_id_to_sampletype}
+
+    # Filtered sample IDs based on selected wells
     selected_sample_ids = set(selected_well_id_to_sample_id.values())
+
+    # Filtered sample ID to color mapping based on selected sample IDs
     filtered_sample_id_to_color = {sample_id: color for sample_id, color in sample_id_to_color.items() if sample_id in selected_sample_ids}
 
-    # Sort and split the samples for the legends
-    standard_samples = {k: v for k, v in filtered_sample_id_to_color.items() if "Standard_" in k}
-    non_standard_samples = {k: v for k, v in filtered_sample_id_to_color.items() if "Standard_" not in k}
+    # Sort and split the samples for the legends based on 'Standard_' in SampleID or sample type being 'standard'
+    standard_samples = {}
+    non_standard_samples = {}
+
+    for well_id, sample_id in selected_well_id_to_sample_id.items():
+        color = filtered_sample_id_to_color.get(sample_id)
+        if color:  # If there's a color mapping for this sample
+            # Check if the sample is standard either by ID or type
+            if "Standard_" in sample_id or selected_well_id_to_sample_type.get(well_id, '').lower() == 'standard':
+                standard_samples[sample_id] = color
+            else:
+                non_standard_samples[sample_id] = color
 
     # Sort the standard samples first, then non-standard samples
     sorted_standard_samples = dict(sort_samples(list(standard_samples.items())))
@@ -896,10 +1063,19 @@ def perform_linear_regression(dye_avg_cq_data):
     # Perform linear regression using the log-transformed concentrations
     X = log_std_conc_pm.values.reshape(-1, 1)  # Convert to 2D array for sklearn
     y = dye_avg_cq_data['Cq']
-    linreg = LinearRegression()
-    linreg.fit(X, y)
+    
+    # Create a mask for rows where y is not NaN
+    mask = ~np.isnan(y)
 
-    r_squared = r2_score(y, linreg.predict(X))
+    # Apply the mask to X and y to filter out rows with NaN in y
+    X_filtered = X[mask]
+    y_filtered = y[mask]
+
+    linreg = LinearRegression()
+    linreg.fit(X_filtered, y_filtered)
+    
+
+    r_squared = r2_score(y_filtered, linreg.predict(X_filtered))
 
     return linreg, r_squared, log_std_conc_pm  
    
@@ -910,28 +1086,39 @@ def upload_files():
     lines = read_tsv_lines(file_path)
     download_tsv(lines)
     
-    uploaded_labelling_file = st.sidebar.file_uploader("Upload your labeling file", type=['tsv', 'txt'])
+    uploaded_labelling_file = st.sidebar.file_uploader("Upload your labelling file", type=['tsv', 'txt'])
     pcr_data_basename = os.path.splitext(os.path.basename(uploaded_PCR_file.name))[0] if uploaded_PCR_file else 'qPCR'
      
     return uploaded_PCR_file, uploaded_labelling_file, pcr_data_basename
 
-def process_labeling_file(uploaded_file_tsv):
+def process_labelling_file(uploaded_file_tsv):
     if uploaded_file_tsv is not None:
-        with st.spinner("Processing labeling file..."):
-            labeling_data = pd.read_csv(uploaded_file_tsv, sep='\t')
-            if 'well' in labeling_data.columns:
-                labeling_data['well'] = labeling_data['well'].apply(lambda x: f"{x[0]}{int(x[1:]):02d}")
+        with st.spinner("Processing labelling file..."):
+            labelling_data = pd.read_csv(uploaded_file_tsv, sep='\t')
+            if 'well' in labelling_data.columns:
+                labelling_data['well'] = labelling_data['well'].apply(lambda x: f"{x[0]}{int(x[1:]):02d}")
             else:
-                st.error("Labeling data must contain 'well' column.")
-            return labeling_data
+                st.error("labelling data must contain 'well' column.")
+        return labelling_data
     return None
 
-def merge_and_preprocess_data(raw_data, labeling_data):
-    if raw_data is not None and 'WellID' in raw_data.columns and labeling_data is not None:
-        raw_data = pd.merge(raw_data, labeling_data, left_on=["WellID", "DyeID"], right_on=["well", "filter"], how="inner")
+def merge_and_preprocess_data(raw_data, melt_data, labelling_data, pcr_data_basename):
+    if raw_data is not None and 'WellID' in raw_data.columns and labelling_data is not None:
+        raw_data = pd.merge(raw_data, labelling_data, left_on=["WellID", "DyeID"], right_on=["well", "filter"], how="inner")
         raw_data['SampleID'] = raw_data['sample']
         raw_data.drop(columns=['sample'], inplace=True)
-    return raw_data
+        
+        # Convert DataFrame to TSV format
+        tsv_data = raw_data.to_csv(sep='\t', index=False)
+        
+        # Create a download button for the TSV data
+        st.sidebar.download_button(
+            label="Download labelled fluorescence data as TSV",
+            data=tsv_data,
+            file_name=f"{pcr_data_basename}_labelled_data.tsv",
+            mime="text/tab-separated-values"
+        )                
+    return raw_data, melt_data
 
 def setup_analysis_parameters(subtracted_data):
     unique_dyes = subtracted_data['DyeID'].unique()
@@ -954,7 +1141,7 @@ def setup_analysis_parameters(subtracted_data):
         st.sidebar.markdown(f"### {dye} Sliders")
         
         # Dye-specific sliders
-        log_fluorescence_thresholds[dye] = st.sidebar.slider(f"Log Adjusted Fluorescence threshold ({dye})", 0.0, 10.0, 4.15, key=f'log_fluorescence_threshold_{dye}')
+        log_fluorescence_thresholds[dye] = st.sidebar.slider(f"Log Adjusted Fluorescence threshold ({dye})", 0.0, 10.0, 5.0, key=f'log_fluorescence_threshold_{dye}')
         eff_window_size[dye] = st.sidebar.slider(f"Steepest section cycle window ({dye})", 3, 10, 4, key=f'eff_window_size_{dye}')
         ignore_cycles[dye] = st.sidebar.slider(f"Start cycle for steepest section ({dye})", 0, 10, 0, key=f'ignore_cycles_{dye}')
         exponential_cycles_thresholds[dye] = st.sidebar.slider(f"Exponential Cycles Threshold ({dye})", 3, 10, 4, key=f'exponential_cycles_threshold_{dye}')
@@ -962,7 +1149,7 @@ def setup_analysis_parameters(subtracted_data):
 
     return unique_dyes
 
-def analyze_data(subtracted_data, unique_dyes, labeling_data):
+def analyze_data(subtracted_data, unique_dyes, labelling_data):
     all_steepest_sections = {}
     all_efficiencies = {}
     results = []
@@ -1019,7 +1206,7 @@ def analyze_data(subtracted_data, unique_dyes, labeling_data):
             '% Efficiency': "{:.0f}%".format(efficiency / 2 * 100) if efficiency else 'N/A',
         }
 
-        if labeling_data is not None:
+        if labelling_data is not None:
             result.update({
                 'sampletype': group_data.iloc[0]['sampletype'],
                 'std_conc_pm': group_data.iloc[0]['std_conc_pm'],
@@ -1035,7 +1222,7 @@ def analyze_data(subtracted_data, unique_dyes, labeling_data):
     return results_df, all_steepest_sections, mean_cq_thresholds
 
 def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles):
-
+    st.subheader("Amplification_Curves:")
     for dye_id in unique_dyes:
         baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
         col1, col2 = st.columns(2)
@@ -1071,7 +1258,7 @@ def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_s
                             is_last_dye=(dye_id == unique_dyes[-1]),)
             st.pyplot(fig2)
 
-def display_results_table(results_df, labeling_data, pcr_data_basename):
+def display_results_table(results_df, labelling_data, pcr_data_basename):
     st.subheader("Results Table:")
 
     if not st.session_state['selected_wells']:
@@ -1086,11 +1273,14 @@ def display_results_table(results_df, labeling_data, pcr_data_basename):
     filtered_results_df['WellID'] = pd.Categorical(filtered_results_df['WellID'], categories=sorted(filtered_results_df['WellID'].unique(), key=well_sort_key), ordered=True)
     filtered_results_df.sort_values(by=['DyeID', 'WellID'], inplace=True)
     
-    if labeling_data is not None:
-        columns = ['SampleID', 'WellID', 'DyeID', 'Cq', '% Efficiency', 'sampletype', 'std_conc_pm', 'dilutionfactor', 'libraryfragmentsize']
-    else:
-        columns = ['SampleID', 'WellID', 'DyeID', 'Cq', '% Efficiency']
+    columns = ['SampleID', 'WellID', 'DyeID', 'Cq', '% Efficiency']
+
+    if 'MeltTemp' in filtered_results_df.columns: 
+        columns.append('MeltTemp')
     
+    if labelling_data is not None:
+        columns.extend(['sampletype', 'std_conc_pm', 'dilutionfactor', 'libraryfragmentsize'])
+
     st.dataframe(filtered_results_df[columns])
        
     st.download_button(
@@ -1155,6 +1345,8 @@ def calculate_qpcr_results(results_df, slope, intercept, pcr_data_basename, dye_
     # Convert 'SampleID' to string and exclude standard samples
     results_df['SampleID'] = results_df['SampleID'].astype(str)
     non_standard_df = results_df[~results_df['SampleID'].str.contains("Standard_", case=False, na=False)].copy()
+    if 'sampletype' in non_standard_df:
+        non_standard_df = non_standard_df[~non_standard_df['sampletype'].str.contains("standard", case=False, na=False)].copy()
     
     # Group by 'SampleID' and 'Dilution' for subsequent calculations
     grouped = non_standard_df.groupby(['SampleID', 'dilutionfactor'])
@@ -1411,9 +1603,10 @@ def main():
     st.subheader("qPCR and KAPA Library Quantification Analysis Tool")
     uploaded_PCR_file, uploaded_labelling_file, pcr_data_basename = upload_files()
       
-    labeling_data = process_labeling_file(uploaded_labelling_file)
-    raw_data = process_pcr_data_file(uploaded_PCR_file)
-    raw_data = merge_and_preprocess_data(raw_data, labeling_data)
+    labelling_data = process_labelling_file(uploaded_labelling_file)
+    
+    raw_data, melt_data = process_pcr_data_file(uploaded_PCR_file, pcr_data_basename)
+    raw_data, melt_data = merge_and_preprocess_data(raw_data, melt_data, labelling_data, pcr_data_basename)
     subtracted_data = pd.DataFrame()
 
     if st.session_state['selected_wells'] != st.session_state['previous_selected_wells']:
@@ -1422,20 +1615,33 @@ def main():
     else:
         st.session_state['multiselect_interaction'] = False
 
-    st.button('Plot and perform calculations', on_click=lambda: st.session_state.update({'plot_and_calculate': True}) and st.session_state.update({'multiselect_interaction': False}))
+    if uploaded_PCR_file:
+        st.button('Plot and perform calculations', on_click=lambda: st.session_state.update({'plot_and_calculate': True}) and st.session_state.update({'multiselect_interaction': False}))
+        if not st.session_state['plot_and_calculate']:
+                st.markdown('**Note**: <span style="margin-left: 0.5em;">Performing plotting and calculations on a large number of wells can take some time.</span><br><span style="margin-left: 3em;">Adjust parameters on a small subset before running your final analysis.</span>', unsafe_allow_html=True)
+    else:
+        st.write("Upload your qPCR run file in the sidebar.")
+        
     if raw_data is not None :
         if st.session_state['selected_wells']:
             unique_dyes = setup_analysis_parameters(raw_data)
+
             if st.session_state['plot_and_calculate'] and not st.session_state['multiselect_interaction']:
                 subtracted_data, baseline_end_cycles = baseline_subtraction(raw_data)
             
             if not subtracted_data.empty:
                 for dye in unique_dyes:
-                    results_df, all_steepest_sections, cq_thresholds = analyze_data(subtracted_data, unique_dyes, labeling_data)
+                    results_df, all_steepest_sections, cq_thresholds = analyze_data(subtracted_data, unique_dyes, labelling_data)
                     results_df['Cq'] = pd.to_numeric(results_df['Cq'], errors='coerce')
-                    
+                                       
                 plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles)
-                display_results_table(results_df, labeling_data, pcr_data_basename)
+
+                if not melt_data.empty:
+                    melt_df = melt_data[melt_data['WellID'].isin(st.session_state['selected_wells'])].copy()
+                    melt_temperatures_df = plot_melt_curves(melt_df, unique_dyes, prominence=0.01)
+                    results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
+                    
+                display_results_table(results_df, labelling_data, pcr_data_basename)
 
         current_data = raw_data if raw_data is not None else subtracted_data
 
@@ -1449,7 +1655,7 @@ def main():
             st.session_state['selected_wells'] = []
 
         # Plot standard curves if standards data is available
-        if not subtracted_data.empty and labeling_data is not None and st.session_state['selected_wells']:
+        if not subtracted_data.empty and labelling_data is not None and st.session_state['selected_wells']:
             standards_data = results_df[results_df['sampletype'] == 'standard'].copy()
             standards_data['Cq'] = pd.to_numeric(standards_data['Cq'], errors='coerce')
             standards_data['std_conc_pm'] = pd.to_numeric(standards_data['std_conc_pm'], errors='coerce')
@@ -1461,7 +1667,7 @@ def main():
             # Group by 'std_conc_pm' and 'DyeID' and calculate the average Cq for each group
             avg_cq_data = standards_data.groupby(['std_conc_pm', 'DyeID'])['Cq'].mean().reset_index()
 
-            for dye_id in unique_dyes:
+            for dye_id in unique_dyes:         
                 fig, ax = plt.subplots()
                 dye_standards_data = standards_data[standards_data['DyeID'] == dye_id]
                 dye_avg_cq_data = avg_cq_data[avg_cq_data['DyeID'] == dye_id]
@@ -1508,9 +1714,13 @@ def main():
 
         # Assuming 'current_data' has columns 'WellID' and 'SampleID'
         well_id_to_sample_id = dict(zip(current_data['WellID'], current_data['SampleID']))
+        if 'sampletype' in current_data:
+            well_id_to_sampletype = dict(zip(current_data['WellID'], current_data['sampletype']))
+        else:
+            well_id_to_sampletype = {}
 
         # Now, call generate_well_table with the required arguments
-        generate_well_table(sorted_wells, sample_id_to_color, well_id_to_sample_id)
+        generate_well_table(sorted_wells, sample_id_to_color, well_id_to_sample_id, well_id_to_sampletype)
 
         # Extract unique rows and columns from the dataset
         unique_rows = sorted(set(re.match(r"([A-Za-z]+)", well).group(1) for well in available_wells))
