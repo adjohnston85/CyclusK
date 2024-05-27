@@ -935,16 +935,15 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
         table_html += "</table>"
         return table_html
 
-    def sort_samples(samples):
-        """Sorts sample names first by alphabetic prefix, then by numeric suffix."""
-        def sample_sort_key(item):
-            sample_id = item[0]
-            prefix = re.match(r'^.*?(?=\d*$)', sample_id).group()
-            numeric_suffix = extract_numeric_part(sample_id)
-            return (prefix, numeric_suffix)
-        return sorted(samples, key=sample_sort_key)
+    def sort_samples_by_well(sample_items, well_id_to_sample_id):
+        """Sorts sample items based on the first appearance of their well ID in the plate."""
+        sample_to_first_well = {sample_id: min([well for well, sample in well_id_to_sample_id.items() if sample == sample_id], key=lambda x: (x[0], int(x[1:]))) for sample_id, _ in sample_items}
+        return sorted(sample_items, key=lambda item: (sample_to_first_well[item[0]][0], int(sample_to_first_well[item[0]][1:])))
 
     def generate_legend(samples, include_well_availability=False):
+        # Sort the sample items before generating legend entries based on well order
+        sample_items = sort_samples_by_well(list(samples.items()), well_id_to_sample_id)
+
         # Start the legend HTML without the 'Legend:' label
         legend_html = "<div style='margin-left: 5px;'>"
 
@@ -954,9 +953,6 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
                            "<div class='legend-cell'><div class='white-circle-table'></div> <span class='legend-text'>Available Well</span></div>" \
                            "<div class='legend-cell'><div class='legend-white-square'></div> <span class='legend-text'>Unavailable Well</span></div>" \
                            "</div>"
-
-        # Sort the sample items before generating legend entries
-        sample_items = list(samples.items())
 
         for i in range(0, len(sample_items), 3):
             legend_html += "<div class='legend-row'>"
@@ -982,26 +978,12 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
     # Filtered sample ID to color mapping based on selected sample IDs
     filtered_sample_id_to_color = {sample_id: color for sample_id, color in sample_id_to_color.items() if sample_id in selected_sample_ids}
 
-    # Sort and split the samples for the legends based on 'Standard_' in SampleID or sample type being 'standard'
-    standard_samples = {}
-    non_standard_samples = {}
+    # Sort the samples for the legends based on well order
+    sorted_samples = sort_samples_by_well(list(filtered_sample_id_to_color.items()), well_id_to_sample_id)
 
-    for well_id, sample_id in selected_well_id_to_sample_id.items():
-        color = filtered_sample_id_to_color.get(sample_id)
-        if color:  # If there's a color mapping for this sample
-            # Check if the sample is standard either by ID or type
-            if "Standard_" in sample_id or selected_well_id_to_sample_type.get(well_id, '').lower() == 'standard':
-                standard_samples[sample_id] = color
-            else:
-                non_standard_samples[sample_id] = color
-
-    # Sort the standard samples first, then non-standard samples
-    sorted_standard_samples = dict(sort_samples(list(standard_samples.items())))
-    sorted_nonstandard_samples = dict(sort_samples(list(non_standard_samples.items())))
-
-    # Now split the sorted samples for the top and bottom legends
-    top_samples = dict(list(sorted_nonstandard_samples.items())[:21])  # Up to the first nine samples for the top legend
-    bottom_samples = {**dict(list(sorted_nonstandard_samples.items())[21:]), **sorted_standard_samples}
+    # Split the sorted samples for the top and bottom legends
+    top_samples = dict(sorted_samples[:21])
+    bottom_samples = dict(sorted_samples[21:])
 
     top_legend_html = generate_legend(top_samples, include_well_availability=True)
     bottom_legend_html = generate_legend(bottom_samples)
