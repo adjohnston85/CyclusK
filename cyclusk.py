@@ -539,12 +539,38 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
 
     return sample_id_to_color
 
-def plot_raw_melt_curves_colored(df, dye_id, ax):
-    unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
-    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
+def generate_sample_id_to_color(sample_ids, dye_id=None, standard_color="#9faee5ff", default_color="#1e22aaff"):
+    sample_id_to_color = {}
+    
+    dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
+    
+    # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
+    num_colors_needed = len(sample_ids)
+
+    if st.session_state.get('color_by_samples', False):
+        # Use 'husl' color palette, ensuring distinct separation
+        colors = sns.color_palette("husl", num_colors_needed)
+
+        # Assign colors to sample IDs
+        for color_index, sample_id in enumerate(sample_ids):
+            sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
+    else:
+        # Assign default or standard color based on sample ID
+        for sample_id in sample_ids:
+            if 'Standard_' in sample_id:
+                sample_id_to_color[sample_id] = standard_color
+            elif dye_id:
+                sample_id_to_color[sample_id] = dye_colors[dye_id]
+            else:
+                sample_id_to_color[sample_id] = default_color
+
+    return sample_id_to_color
+
+def plot_raw_melt_curves_colored(df, sample_colors, dye_id, ax):
+    unique_samples = df['SampleID'].unique()
 
     for sample_id in unique_samples:
-        sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
+        sample_data = df[df['SampleID'] == sample_id]
         for well_id in sample_data['WellID'].unique():
             well_data = sample_data[sample_data['WellID'] == well_id]
             ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
@@ -553,14 +579,12 @@ def plot_raw_melt_curves_colored(df, dye_id, ax):
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Fluorescence")
 
-def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
-    """Plot the derivative of fluorescence with respect to temperature for melt curves, identify and mark the most prominent peak."""
-    unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
-    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
+def plot_derivative_melt_curves_with_peaks(df, sample_colors, dye_id, ax, prominence=0.01):
+    unique_samples = df['SampleID'].unique()
     melt_temperatures = []
 
     for sample_id in unique_samples:
-        sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
+        sample_data = df[df['SampleID'] == sample_id]
 
         for well_id in sample_data['WellID'].unique():
             well_data = df[(df['DyeID'] == dye_id) & (df['WellID'] == well_id)].sort_values(by='Temperature')
@@ -593,10 +617,14 @@ def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
     ax.set_ylabel("-d(Fluorescence)/dT")
     
     return melt_temperatures_df
-    
+
 def plot_melt_curves(df, unique_dyes, prominence=0.01):
     """Plot raw and derivative melt curves side by side for each dye."""
     st.subheader("Melt Curves:")
+
+    # Generate colors once for all samples
+    all_sample_ids = df['SampleID'].unique()
+    sample_colors = generate_sample_id_to_color(all_sample_ids)
 
     for dye_id in unique_dyes:
         col1, col2 = st.columns(2)
@@ -606,15 +634,13 @@ def plot_melt_curves(df, unique_dyes, prominence=0.01):
         with col1:
             st.write(f"Raw Melt Curve for {dye_id}")
             # Plot raw melt curves with coloring
-            plot_raw_melt_curves_colored(df, dye_id, ax1)
-
+            plot_raw_melt_curves_colored(df[df['DyeID'] == dye_id], sample_colors, dye_id, ax1)
             st.pyplot(fig1)
 
         with col2:
             st.write(f"Derivative Melt Curve with Peaks for {dye_id}")
             # Plot derivative melt curves with peak identification
-            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df, dye_id, ax2, prominence)
-            
+            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df[df['DyeID'] == dye_id], sample_colors, dye_id, ax2, prominence)
             st.pyplot(fig2)
     
     return melt_temperatures_df
