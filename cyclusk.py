@@ -522,39 +522,14 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
     num_colors_needed = len(sample_ids)
 
     if st.session_state['color_by_samples']:
-        # Define a list of preferred color palettes with their maximum color counts
-        color_palettes = [
-            ("tab10", 10),
-            ("Set3", 12),
-            ("tab20", 20),
-            ("husl", 256)  # 'husl' is a good choice for large distinct color sets
-        ]
-
-        # Select the most suitable color palette based on the number of colors needed
-        for palette_name, max_colors in color_palettes:
-            if num_colors_needed <= max_colors:
-                colors = sns.color_palette(palette_name, num_colors_needed)
-                break
-        else:
-            # For 'husl', skip more colors to ensure distinct separation and randomize the placement
-            skip_increment = 256 // num_colors_needed
-            base_colors = sns.color_palette("husl", 256)
-            distinct_colors = base_colors[::skip_increment]  # Skip hues to get more distinct colors
-            colors = random.sample(distinct_colors, num_colors_needed)  # Randomly sample the required number of colors
-
-        # Shuffle colors to avoid similar colors being placed side by side
-        random.shuffle(colors)
+        # Use 'husl' color palette
+        colors = sns.color_palette("husl", num_colors_needed)
 
         # Assign colors to sample IDs
         color_index = 0
         for sample_id in sample_ids:
-            if 'Standard_' in sample_id:
-                # Assign distinct colors to each standard sample
-                sample_id_to_color[sample_id] = colors[color_index % len(colors)][:3]
-                color_index += 1
-            else:
-                sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
-                color_index += 1
+            sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
+            color_index += 1
     else:
         # Assign default or standard color based on sample ID
         for sample_id in sample_ids:
