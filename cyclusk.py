@@ -519,8 +519,7 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
     other_colors = itertools.cycle(['cyan', 'magenta', 'yellow', 'black', 'orange'])
     
     # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
-    non_standard_ids = [sid for sid in sample_ids if 'Standard_' not in sid]
-    num_colors_needed = len(non_standard_ids)
+    num_colors_needed = len(sample_ids)
 
     if st.session_state['color_by_samples']:
         # Define a list of preferred color palettes with their maximum color counts
@@ -538,8 +537,9 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
                 break
         else:
             # For 'husl', skip more colors to ensure distinct separation and randomize the placement
+            skip_increment = 256 // num_colors_needed
             base_colors = sns.color_palette("husl", 256)
-            distinct_colors = base_colors[::5]  # Skip every 5 hues to get more distinct colors
+            distinct_colors = base_colors[::skip_increment]  # Skip hues to get more distinct colors
             colors = random.sample(distinct_colors, num_colors_needed)  # Randomly sample the required number of colors
 
         # Shuffle colors to avoid similar colors being placed side by side
