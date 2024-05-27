@@ -525,26 +525,12 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
     num_colors_needed = len(non_standard_ids)
 
     if st.session_state['color_by_samples']:
-        # Define a list of preferred color palettes with their maximum color counts
-        color_palettes = [
-            ("tab10", 10),
-            ("Set3", 12),
-            ("tab20", 20),
-            ("husl", 256)  # 'husl' is a good choice for large distinct color sets
-        ]
+        # Use husl color space to generate distinct colors
+        base_colors = sns.color_palette("husl", 256)  # Generate a large set of husl colors
+        distinct_colors = base_colors[::12]  # Skip hues to get more distinct colors initially
+        similar_colors = [base_colors[i] for i in range(len(base_colors)) if i % 12 != 0]  # Remaining colors for later use
 
-        # Select the most suitable color palette based on the number of colors needed
-        for palette_name, max_colors in color_palettes:
-            if num_colors_needed <= max_colors:
-                colors = sns.color_palette(palette_name, num_colors_needed)
-                break
-        else:
-            # Fallback to a continuous colormap if the number exceeds predefined palettes
-            cmap = plt.cm.get_cmap('viridis', num_colors_needed)
-            colors = [cmap(i) for i in range(num_colors_needed)]
-
-        # Shuffle colors to avoid similar colors being placed side by side
-        random.shuffle(colors)
+        colors = distinct_colors + similar_colors  # Combine distinct and similar colors
 
         # Assign colors to sample IDs
         color_index = 0
