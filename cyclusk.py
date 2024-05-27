@@ -512,33 +512,6 @@ def extract_numeric_part(sample_name):
 def thousands_formatter(x, pos):
     return '%1.0f' % (x * 1e-3)
 
-def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", default_color="#1e22aaff"):
-    sample_id_to_color = {}
-    
-    dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
-    
-    # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
-    num_colors_needed = len(sample_ids)
-
-    if st.session_state['color_by_samples']:
-        # Use 'husl' color palette, ensuring distinct separation
-        colors = sns.color_palette("husl", num_colors_needed)
-
-        # Assign colors to sample IDs
-        for color_index, sample_id in enumerate(sample_ids):
-            sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
-    else:
-        # Assign default or standard color based on sample ID
-        for sample_id in sample_ids:
-            if 'Standard_' in sample_id:
-                sample_id_to_color[sample_id] = standard_color
-            elif dye_id:
-                sample_id_to_color[sample_id] = dye_colors[dye_id]
-            else:
-                sample_id_to_color[sample_id] = default_color
-
-    return sample_id_to_color
-
 def generate_sample_id_to_color(sample_ids, dye_id=None, standard_color="#9faee5ff", default_color="#1e22aaff"):
     sample_id_to_color = {}
     
@@ -550,10 +523,13 @@ def generate_sample_id_to_color(sample_ids, dye_id=None, standard_color="#9faee5
     if st.session_state.get('color_by_samples', False):
         # Use 'husl' color palette, ensuring distinct separation
         colors = sns.color_palette("husl", num_colors_needed)
+        
+        # Randomize the colors
+        random.shuffle(colors)
 
         # Assign colors to sample IDs
         for color_index, sample_id in enumerate(sample_ids):
-            sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
+            sample_id_to_color[sample_id] = colors[color_index]  # Directly assign the color
     else:
         # Assign default or standard color based on sample ID
         for sample_id in sample_ids:
