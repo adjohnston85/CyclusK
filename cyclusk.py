@@ -31,6 +31,8 @@ def map_react_id_to_well(react_id):
     col = (react_id - 1) % 24 + 1
     return f'{row}{col:02d}'
 
+import struct
+
 def extract_max_cycles(protocol_content):
     # Look for 'PLATEREAD', then any characters until 'GOTO', then an integer followed by a comma, and then capture the cycle number
     pattern = r'PLATEREAD.*?GOTO \d+,(\d+)'
@@ -541,28 +543,31 @@ def generate_sample_id_to_color(sample_ids, dye_id=None, standard_color="#9faee5
 
     return sample_id_to_color
 
-def plot_raw_melt_curves_colored(df, sample_colors, ax):
-    unique_samples = df['SampleID'].unique()
+def plot_raw_melt_curves_colored(df, dye_id, ax):
+    unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
+    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
 
     for sample_id in unique_samples:
-        sample_data = df[df['SampleID'] == sample_id]
+        sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
         for well_id in sample_data['WellID'].unique():
             well_data = sample_data[sample_data['WellID'] == well_id]
             ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
 
-    ax.set_title("Raw Melt Curves")
+    ax.set_title(f"Raw Melt Curves for Dye {dye_id}")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Fluorescence")
-
-def plot_derivative_melt_curves_with_peaks(df, sample_colors, ax, prominence=0.01):
-    unique_samples = df['SampleID'].unique()
+    
+def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
+    """Plot the derivative of fluorescence with respect to temperature for melt curves, identify and mark the most prominent peak."""
+    unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
+    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
     melt_temperatures = []
 
     for sample_id in unique_samples:
-        sample_data = df[df['SampleID'] == sample_id]
+        sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
 
         for well_id in sample_data['WellID'].unique():
-            well_data = df[df['WellID'] == well_id].sort_values(by='Temperature')
+            well_data = df[(df['DyeID'] == dye_id) & (df['WellID'] == well_id)].sort_values(by='Temperature')
             temperature = well_data['Temperature']
             fluorescence = well_data['Fluorescence']
 
@@ -580,51 +585,46 @@ def plot_derivative_melt_curves_with_peaks(df, sample_colors, ax, prominence=0.0
                 most_prominent_peak = peaks[np.argmax(properties["prominences"])]
                 melt_temperature = temperature.iloc[most_prominent_peak]
                 
-                melt_temperatures.append({'DyeID': df['DyeID'].iloc[0], 'SampleID': sample_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
+                melt_temperatures.append({'DyeID': dye_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
 
                 # Mark the most prominent peak on the plot
                 ax.scatter(temperature.iloc[most_prominent_peak], derivative[most_prominent_peak], s=20, facecolors='none', edgecolors='red', linewidths=0.5, zorder=5)
 
     melt_temperatures_df = pd.DataFrame(melt_temperatures)
 
-    ax.set_title("Derivative Melt Curves and Peaks")
+    ax.set_title(f"Derivative Melt Curves and Peaks for Dye {dye_id}")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("-d(Fluorescence)/dT")
     
     return melt_temperatures_df
-
+    
 def plot_melt_curves(df, unique_dyes, prominence=0.01):
     """Plot raw and derivative melt curves side by side for each dye."""
     st.subheader("Melt Curves:")
 
-    # Generate colors once for all samples
-    all_sample_ids = df['SampleID'].unique()
-    sample_colors = generate_sample_id_to_color(all_sample_ids)
-
-    melt_temperatures_dfs = []
-
     for dye_id in unique_dyes:
+        # Streamlit columns for side-by-side plots
+        
+        baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
         col1, col2 = st.columns(2)
         fig1, ax1 = plt.subplots()
         fig2, ax2 = plt.subplots()
 
-        dye_df = df[df['DyeID'] == dye_id]
-
         with col1:
             st.write(f"Raw Melt Curve for {dye_id}")
             # Plot raw melt curves with coloring
-            plot_raw_melt_curves_colored(dye_df, sample_colors, ax1)
+            plot_raw_melt_curves_colored(df, dye_id, ax1)
+
             st.pyplot(fig1)
 
         with col2:
             st.write(f"Derivative Melt Curve with Peaks for {dye_id}")
             # Plot derivative melt curves with peak identification
-            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(dye_df, sample_colors, ax2, prominence)
+            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df, dye_id, ax2, prominence)
+            
             st.pyplot(fig2)
-
-        melt_temperatures_dfs.append(melt_temperatures_df)
     
-    return pd.concat(melt_temperatures_dfs, ignore_index=True)
+    return melt_temperatures_df
 
 def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_end_cycles, log_transform=False,
                     log_fluorescence_threshold=None, baseline_cycle=None, is_last_dye=False):
@@ -1603,12 +1603,7 @@ def main():
                 if not melt_data.empty:
                     melt_df = melt_data[melt_data['WellID'].isin(st.session_state['selected_wells'])].copy()
                     melt_temperatures_df = plot_melt_curves(melt_df, unique_dyes, prominence=0.01)
-                    
-                    # Ensure required columns for merging
-                    if 'DyeID' in melt_temperatures_df.columns and 'WellID' in melt_temperatures_df.columns:
-                        results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
-                    else:
-                        st.error("Required columns are missing in melt_temperatures_df")
+                    results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
                     
                 display_results_table(results_df, labelling_data, pcr_data_basename)
 
@@ -1659,6 +1654,8 @@ def main():
         st.subheader("Select Wells to Include:")
 
         if st.button("Select All Wells", on_click=lambda: st.session_state.update({'plot_and_calculate': False})):
+        
+        
             if not all(well in st.session_state['selected_wells'] for well in sorted_wells):
                 st.session_state['selected_wells'] = sorted_wells
             else:
