@@ -896,6 +896,7 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
             margin-right: 10px;
             display: flex;
             align-items: center;
+        }
         .legend-text {
             font-size: 10px; 
         }
