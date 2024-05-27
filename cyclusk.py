@@ -978,22 +978,12 @@ def generate_well_table(available_wells, sample_id_to_color, well_id_to_sample_i
     # Filtered sample ID to color mapping based on selected sample IDs
     filtered_sample_id_to_color = {sample_id: color for sample_id, color in sample_id_to_color.items() if sample_id in selected_sample_ids}
 
-    # Sort and split the samples for the legends based on 'Standard_' in SampleID or sample type being 'standard'
-    standard_samples = {}
-    non_standard_samples = {}
+    # Sort the samples for the legends based on well order
+    sorted_samples = sort_samples_by_well(list(filtered_sample_id_to_color.items()), well_id_to_sample_id)
 
-    for well_id, sample_id in selected_well_id_to_sample_id.items():
-        color = filtered_sample_id_to_color.get(sample_id)
-        if color:  # If there's a color mapping for this sample
-            # Check if the sample is standard either by ID or type
-            if "Standard_" in sample_id or selected_well_id_to_sample_type.get(well_id, '').lower() == 'standard':
-                standard_samples[sample_id] = color
-            else:
-                non_standard_samples[sample_id] = color
-
-    # Now split the sorted samples for the top and bottom legends
-    top_samples = {sample_id: color for sample_id, color in filtered_sample_id_to_color.items() if sample_id not in standard_samples}
-    bottom_samples = {sample_id: color for sample_id, color in standard_samples.items()}
+    # Split the sorted samples for the top and bottom legends
+    top_samples = dict(sorted_samples[:21])
+    bottom_samples = dict(sorted_samples[21:])
 
     top_legend_html = generate_legend(top_samples, include_well_availability=True)
     bottom_legend_html = generate_legend(bottom_samples)
