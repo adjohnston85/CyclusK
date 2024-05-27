@@ -517,19 +517,18 @@ def generate_sample_id_to_color(sample_ids, dye_id=None, standard_color="#9faee5
     
     dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
     
-    # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
     num_colors_needed = len(sample_ids)
-
+    
     if st.session_state.get('color_by_samples', False):
         # Use 'husl' color palette, ensuring distinct separation
         colors = sns.color_palette("husl", num_colors_needed)
         
-        # Randomize the colors
+        # Randomize the colors to avoid similar colors side-by-side
         random.shuffle(colors)
 
         # Assign colors to sample IDs
         for color_index, sample_id in enumerate(sample_ids):
-            sample_id_to_color[sample_id] = colors[color_index]  # Directly assign the color
+            sample_id_to_color[sample_id] = colors[color_index]
     else:
         # Assign default or standard color based on sample ID
         for sample_id in sample_ids:
@@ -581,7 +580,7 @@ def plot_derivative_melt_curves_with_peaks(df, sample_colors, ax, prominence=0.0
                 most_prominent_peak = peaks[np.argmax(properties["prominences"])]
                 melt_temperature = temperature.iloc[most_prominent_peak]
                 
-                melt_temperatures.append({'SampleID': sample_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
+                melt_temperatures.append({'DyeID': df['DyeID'].iloc[0], 'SampleID': sample_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
 
                 # Mark the most prominent peak on the plot
                 ax.scatter(temperature.iloc[most_prominent_peak], derivative[most_prominent_peak], s=20, facecolors='none', edgecolors='red', linewidths=0.5, zorder=5)
@@ -1604,7 +1603,11 @@ def main():
                 if not melt_data.empty:
                     melt_df = melt_data[melt_data['WellID'].isin(st.session_state['selected_wells'])].copy()
                     melt_temperatures_df = plot_melt_curves(melt_df, unique_dyes, prominence=0.01)
-                    results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
+                    
+                    if not set(['DyeID', 'WellID']).issubset(melt_temperatures_df.columns):
+                        st.error("Required columns are missing in melt_temperatures_df")
+                    else:
+                        results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
                     
                 display_results_table(results_df, labelling_data, pcr_data_basename)
 
@@ -1655,8 +1658,6 @@ def main():
         st.subheader("Select Wells to Include:")
 
         if st.button("Select All Wells", on_click=lambda: st.session_state.update({'plot_and_calculate': False})):
-        
-        
             if not all(well in st.session_state['selected_wells'] for well in sorted_wells):
                 st.session_state['selected_wells'] = sorted_wells
             else:
