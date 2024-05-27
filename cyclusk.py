@@ -551,7 +551,7 @@ def plot_raw_melt_curves_colored(df, sample_colors, ax):
             well_data = sample_data[sample_data['WellID'] == well_id]
             ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
 
-    ax.set_title(f"Raw Melt Curves")
+    ax.set_title("Raw Melt Curves")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Fluorescence")
 
@@ -581,14 +581,14 @@ def plot_derivative_melt_curves_with_peaks(df, sample_colors, ax, prominence=0.0
                 most_prominent_peak = peaks[np.argmax(properties["prominences"])]
                 melt_temperature = temperature.iloc[most_prominent_peak]
                 
-                melt_temperatures.append({'WellID': well_id, 'MeltTemp': melt_temperature})
+                melt_temperatures.append({'SampleID': sample_id, 'WellID': well_id, 'MeltTemp': melt_temperature})
 
                 # Mark the most prominent peak on the plot
                 ax.scatter(temperature.iloc[most_prominent_peak], derivative[most_prominent_peak], s=20, facecolors='none', edgecolors='red', linewidths=0.5, zorder=5)
 
     melt_temperatures_df = pd.DataFrame(melt_temperatures)
 
-    ax.set_title(f"Derivative Melt Curves and Peaks")
+    ax.set_title("Derivative Melt Curves and Peaks")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("-d(Fluorescence)/dT")
     
@@ -601,6 +601,8 @@ def plot_melt_curves(df, unique_dyes, prominence=0.01):
     # Generate colors once for all samples
     all_sample_ids = df['SampleID'].unique()
     sample_colors = generate_sample_id_to_color(all_sample_ids)
+
+    melt_temperatures_dfs = []
 
     for dye_id in unique_dyes:
         col1, col2 = st.columns(2)
@@ -620,8 +622,10 @@ def plot_melt_curves(df, unique_dyes, prominence=0.01):
             # Plot derivative melt curves with peak identification
             melt_temperatures_df = plot_derivative_melt_curves_with_peaks(dye_df, sample_colors, ax2, prominence)
             st.pyplot(fig2)
+
+        melt_temperatures_dfs.append(melt_temperatures_df)
     
-    return melt_temperatures_df
+    return pd.concat(melt_temperatures_dfs, ignore_index=True)
 
 def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_end_cycles, log_transform=False,
                     log_fluorescence_threshold=None, baseline_cycle=None, is_last_dye=False):
