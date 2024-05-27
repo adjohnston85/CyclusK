@@ -31,8 +31,6 @@ def map_react_id_to_well(react_id):
     col = (react_id - 1) % 24 + 1
     return f'{row}{col:02d}'
 
-import struct
-
 def extract_max_cycles(protocol_content):
     # Look for 'PLATEREAD', then any characters until 'GOTO', then an integer followed by a comma, and then capture the cycle number
     pattern = r'PLATEREAD.*?GOTO \d+,(\d+)'
@@ -133,7 +131,7 @@ def extract_data_from_zpcr(temp_dir, pcr_data_basename):
 def generate_random_string(length=8):
     letters = string.ascii_letters
     return ''.join(random.choice(letters) for i in range(length))
-    
+
 # Function to extract data from XML
 def extract_data_from_xml(root):
     data = []
@@ -167,7 +165,8 @@ def extract_data_from_xml(root):
     df = pd.DataFrame(data)
     melt_df = pd.DataFrame()
     return df, melt_df   
-    
+
+# Function to read the PCR data file
 def read_qpcr(uploaded_file):
     file_name = uploaded_file.name
     file_extension = os.path.splitext(file_name)[1].lower()
@@ -569,24 +568,22 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
 
     return sample_id_to_color
 
-def plot_raw_melt_curves_colored(df, dye_id, ax):
+def plot_raw_melt_curves_colored(df, dye_id, ax, sample_id_to_color):
     unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
-    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
 
     for sample_id in unique_samples:
         sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
         for well_id in sample_data['WellID'].unique():
             well_data = sample_data[sample_data['WellID'] == well_id]
-            ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
+            ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_id_to_color[sample_id], linestyle='-', linewidth=0.5)
 
     ax.set_title(f"Raw Melt Curves for Dye {dye_id}")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Fluorescence")
     
-def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
+def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, sample_id_to_color, prominence=0.01):
     """Plot the derivative of fluorescence with respect to temperature for melt curves, identify and mark the most prominent peak."""
     unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
-    sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
     melt_temperatures = []
 
     for sample_id in unique_samples:
@@ -601,7 +598,7 @@ def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
             derivative = -np.gradient(fluorescence, temperature)
 
             # Plot the derivative curve for this well with its corresponding color
-            ax.plot(temperature, derivative, label=f"Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
+            ax.plot(temperature, derivative, label=f"Well {well_id}", color=sample_id_to_color[sample_id], linestyle='-', linewidth=0.5)
 
             # Find peaks with the highest prominence
             peaks, properties = find_peaks(derivative, prominence=prominence)
@@ -624,7 +621,7 @@ def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
     
     return melt_temperatures_df
     
-def plot_melt_curves(df, unique_dyes, prominence=0.01):
+def plot_melt_curves(df, unique_dyes, sample_id_to_color, prominence=0.01):
     """Plot raw and derivative melt curves side by side for each dye."""
     st.subheader("Melt Curves:")
 
@@ -639,26 +636,25 @@ def plot_melt_curves(df, unique_dyes, prominence=0.01):
         with col1:
             st.write(f"Raw Melt Curve for {dye_id}")
             # Plot raw melt curves with coloring
-            plot_raw_melt_curves_colored(df, dye_id, ax1)
+            plot_raw_melt_curves_colored(df, dye_id, ax1, sample_id_to_color)
 
             st.pyplot(fig1)
 
         with col2:
             st.write(f"Derivative Melt Curve with Peaks for {dye_id}")
             # Plot derivative melt curves with peak identification
-            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df, dye_id, ax2, prominence)
+            melt_temperatures_df = plot_derivative_melt_curves_with_peaks(df, dye_id, ax2, sample_id_to_color, prominence)
             
             st.pyplot(fig2)
     
     return melt_temperatures_df
 
-def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_end_cycles, log_transform=False,
+def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_end_cycles, sample_id_to_color, log_transform=False,
                     log_fluorescence_threshold=None, baseline_cycle=None, is_last_dye=False):
     if len(df) == 0:
         return
 
     sample_ids = df['SampleID'].unique()
-    sample_id_to_color = generate_sample_id_to_color(sample_ids, dye_id)
 
     dye_group = df[df['DyeID'] == dye_id]
     grouped_by_well = dye_group.groupby('WellID')
@@ -712,9 +708,6 @@ def plot_dye_curves(df, cq_thresholds, dye_id, ax, steepest_sections, baseline_e
     if cq_thresholds and cq_thresholds.get(dye_id):
         cq_threshold = np.log(cq_thresholds[dye_id]) if log_transform else cq_thresholds[dye_id]
         ax.axhline(y=cq_threshold, color='blue', linestyle='--', linewidth=1, label='Cq threshold' if log_transform else None)
-
-    # if log_fluorescence_threshold is not None:
-        # ax.axhline(y=log_fluorescence_threshold, color='black', linestyle='--', linewidth=1, label='Log Fluorescence Threshold')
 
     if baseline_cycle:
         ax.axvline(x=baseline_cycle, color='green', linestyle='--', linewidth=1, label='Baseline Cycle' if log_transform else None)
@@ -1211,8 +1204,8 @@ def analyze_data(subtracted_data, unique_dyes, labelling_data):
     results_df = pd.DataFrame(results)
     return results_df, all_steepest_sections, mean_cq_thresholds
 
-def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles):
-    st.subheader("Amplification_Curves:")
+def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles, sample_id_to_color):
+    st.subheader("Amplification Curves:")
     for dye_id in unique_dyes:
         baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
         col1, col2 = st.columns(2)
@@ -1228,6 +1221,7 @@ def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_s
                             ax=ax1, 
                             steepest_sections=all_steepest_sections, 
                             baseline_end_cycles=baseline_end_cycles, 
+                            sample_id_to_color=sample_id_to_color,
                             log_transform=False, 
                             log_fluorescence_threshold=None, 
                             baseline_cycle=baseline_cycle, 
@@ -1242,6 +1236,7 @@ def plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_s
                             ax=ax2, 
                             steepest_sections=all_steepest_sections, 
                             baseline_end_cycles=baseline_end_cycles, 
+                            sample_id_to_color=sample_id_to_color,
                             log_transform=True, 
                             log_fluorescence_threshold=st.session_state['log_fluorescence_threshold_' + dye_id], 
                             baseline_cycle=baseline_cycle, 
@@ -1624,7 +1619,10 @@ def main():
                     results_df, all_steepest_sections, cq_thresholds = analyze_data(subtracted_data, unique_dyes, labelling_data)
                     results_df['Cq'] = pd.to_numeric(results_df['Cq'], errors='coerce')
                                        
-                plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles)
+                sample_ids = current_data['SampleID'].unique()
+                sample_id_to_color = generate_sample_id_to_color(sample_ids, None)
+
+                plot_amplification_curves(subtracted_data, cq_thresholds, unique_dyes, all_steepest_sections, baseline_end_cycles, sample_id_to_color)
 
                 if not melt_data.empty:
                     melt_df = melt_data[melt_data['WellID'].isin(st.session_state['selected_wells'])].copy()
@@ -1738,3 +1736,4 @@ def main():
                                             
 if __name__ == "__main__":
     main()
+
