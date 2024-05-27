@@ -516,7 +516,7 @@ def thousands_formatter(x, pos):
 
 def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", default_color="#1e22aaff"):
     sample_id_to_color = {}
-
+    
     dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
     other_colors = itertools.cycle(['cyan', 'magenta', 'yellow', 'black', 'orange'])
     
@@ -543,15 +543,19 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
             cmap = plt.cm.get_cmap('viridis', num_colors_needed)
             colors = [cmap(i) for i in range(num_colors_needed)]
 
+        # Shuffle colors to avoid similar colors being placed side by side
+        random.shuffle(colors)
+
         # Assign colors to sample IDs
         color_index = 0
         for sample_id in sample_ids:
             if 'Standard_' in sample_id:
-                sample_id_to_color[sample_id] = standard_color
+                # Assign distinct colors to each standard sample
+                sample_id_to_color[sample_id] = colors[color_index % len(colors)][:3]
+                color_index += 1
             else:
                 sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
                 color_index += 1
-
     else:
         # Assign default or standard color based on sample ID
         for sample_id in sample_ids:
@@ -570,7 +574,6 @@ def plot_raw_melt_curves_colored(df, dye_id, ax):
 
     for sample_id in unique_samples:
         sample_data = df[(df['DyeID'] == dye_id) & (df['SampleID'] == sample_id)]
-        # You might need to adjust how wells are iterated if wells still need to be individually plotted
         for well_id in sample_data['WellID'].unique():
             well_data = sample_data[sample_data['WellID'] == well_id]
             ax.plot(well_data['Temperature'], well_data['Fluorescence'], label=f"Sample {sample_id} Well {well_id}", color=sample_colors[sample_id], linestyle='-', linewidth=0.5)
