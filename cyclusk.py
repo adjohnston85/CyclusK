@@ -522,14 +522,12 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
     num_colors_needed = len(sample_ids)
 
     if st.session_state['color_by_samples']:
-        # Use 'husl' color palette
+        # Use 'husl' color palette, ensuring distinct separation
         colors = sns.color_palette("husl", num_colors_needed)
 
         # Assign colors to sample IDs
-        color_index = 0
-        for sample_id in sample_ids:
+        for color_index, sample_id in enumerate(sample_ids):
             sample_id_to_color[sample_id] = colors[color_index][:3]  # Convert RGBA to RGB
-            color_index += 1
     else:
         # Assign default or standard color based on sample ID
         for sample_id in sample_ids:
@@ -541,7 +539,6 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
                 sample_id_to_color[sample_id] = default_color
 
     return sample_id_to_color
-
 def plot_raw_melt_curves_colored(df, dye_id, ax):
     unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
     sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
