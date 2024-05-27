@@ -1604,10 +1604,11 @@ def main():
                     melt_df = melt_data[melt_data['WellID'].isin(st.session_state['selected_wells'])].copy()
                     melt_temperatures_df = plot_melt_curves(melt_df, unique_dyes, prominence=0.01)
                     
-                    if not set(['DyeID', 'WellID']).issubset(melt_temperatures_df.columns):
-                        st.error("Required columns are missing in melt_temperatures_df")
-                    else:
+                    # Ensure required columns for merging
+                    if 'DyeID' in melt_temperatures_df.columns and 'WellID' in melt_temperatures_df.columns:
                         results_df = pd.merge(results_df, melt_temperatures_df, on=['DyeID', 'WellID'], how='left')
+                    else:
+                        st.error("Required columns are missing in melt_temperatures_df")
                     
                 display_results_table(results_df, labelling_data, pcr_data_basename)
 
