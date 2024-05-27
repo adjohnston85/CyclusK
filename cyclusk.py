@@ -516,7 +516,6 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
     sample_id_to_color = {}
     
     dye_colors = {'FAM': '#1e22aaff', 'HEX': '#78be20ff', 'TEX': '#e4002bff', 'Cy5': '#6d2077ff'}
-    other_colors = itertools.cycle(['cyan', 'magenta', 'yellow', 'black', 'orange'])
     
     # Remove 'Standard_' prefixed IDs to get the actual count for color assignment
     num_colors_needed = len(sample_ids)
@@ -539,6 +538,7 @@ def generate_sample_id_to_color(sample_ids, dye_id, standard_color="#9faee5ff", 
                 sample_id_to_color[sample_id] = default_color
 
     return sample_id_to_color
+
 def plot_raw_melt_curves_colored(df, dye_id, ax):
     unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
     sample_colors = generate_sample_id_to_color(unique_samples, dye_id)  # Generate colors for each sample
@@ -552,7 +552,7 @@ def plot_raw_melt_curves_colored(df, dye_id, ax):
     ax.set_title(f"Raw Melt Curves for Dye {dye_id}")
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Fluorescence")
-    
+
 def plot_derivative_melt_curves_with_peaks(df, dye_id, ax, prominence=0.01):
     """Plot the derivative of fluorescence with respect to temperature for melt curves, identify and mark the most prominent peak."""
     unique_samples = df[df['DyeID'] == dye_id]['SampleID'].unique()
@@ -599,9 +599,6 @@ def plot_melt_curves(df, unique_dyes, prominence=0.01):
     st.subheader("Melt Curves:")
 
     for dye_id in unique_dyes:
-        # Streamlit columns for side-by-side plots
-        
-        baseline_cycle = st.session_state['baseline_cycle_' + dye_id]
         col1, col2 = st.columns(2)
         fig1, ax1 = plt.subplots()
         fig2, ax2 = plt.subplots()
